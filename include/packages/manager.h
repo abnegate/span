@@ -13,9 +13,13 @@ namespace dev::packages {
 
         virtual std::vector<std::string> getDependencyFiles() = 0;
 
-        virtual std::unordered_map<std::string, std::string> getInstalledVersions(const std::string& directory) = 0;
+        virtual std::unordered_map<std::string, std::string> getInstalledVersions(
+            const std::string& directory
+        ) = 0;
 
-        virtual bool installDependencies(const std::string& directory) = 0;
+        virtual bool installDependencies(
+            const std::string& directory
+        ) = 0;
 
         virtual bool linkDependencies(const std::string& directory) = 0;
     };

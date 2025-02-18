@@ -11,9 +11,13 @@ namespace dev::packages {
 
         std::vector<std::string> getDependencyFiles() override;
 
-        std::unordered_map<std::string, std::string> getInstalledVersions(const std::string &directory) override;
+        std::unordered_map<std::string, std::string> getInstalledVersions(
+            const std::string &directory
+        ) override;
 
-        bool installDependencies(const std::string &directory) override;
+        bool installDependencies(
+            const std::string &directory
+        ) override;
 
         bool linkDependencies(const std::string &directory) override;
     };

@@ -6,10 +6,8 @@ namespace fs = std::filesystem;
 
 namespace dev::packages {
     std::string Cache::getCacheDir() {
-        const char* envCacheDir = std::getenv("DEV_PACKAGE_CACHE");
-
-        if (envCacheDir) {
-            return std::string(envCacheDir);
+        if (const char* envCacheDir = std::getenv("DEV_PACKAGE_CACHE")) {
+            return {envCacheDir};
         }
 
 #ifdef _WIN32
