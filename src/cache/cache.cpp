@@ -1,19 +1,20 @@
 #include "cache/cache.h"
 #include <filesystem>
 #include <iostream>
+#include <cstdlib>
 
 namespace fs = std::filesystem;
 
 namespace dev::packages {
     std::string Cache::getCacheDir() {
-        if (const char* envCacheDir = std::getenv("DEV_PACKAGE_CACHE")) {
+        if (const char *envCacheDir = std::getenv("DEV_PACKAGE_CACHE")) {
             return {envCacheDir};
         }
 
 #ifdef _WIN32
         const char* homeDir = std::getenv("USERPROFILE");
 #else
-        const char* homeDir = std::getenv("HOME");
+        const char *homeDir = std::getenv("HOME");
 #endif
 
         if (!homeDir) {
@@ -24,28 +25,38 @@ namespace dev::packages {
     }
 
     bool Cache::isCached(
-        const std::string& language,
-        const std::string& package,
-        const std::string& version
+        const std::string &language,
+        const std::string &package,
+        const std::string &version
     ) {
-        return fs::exists(fs::path(getCacheDir()) / language / package / version);
+        return exists(fs::path(getCacheDir()) / language / package / version);
     }
 
     bool Cache::linkFromCache(
-        const std::string& language,
-        const std::string& package,
-        const std::string& version,
-        const std::string& targetDir
+        const std::string &language,
+        const std::string &package,
+        const std::string &version,
+        const std::string &targetDir
     ) {
         const auto cachedPath = fs::path(getCacheDir()) / language / package / version;
         const auto targetPath = fs::path(targetDir);
 
         if (isCached(language, package, version)) {
 #ifdef _WIN32
-            // On Windows, create a directory junction instead of a symlink
-            std::system(("mklink /J " + targetPath + " " + cachedPath).c_str());
+            // On Windows, create a directory junction.
+            std::string cmd = "mklink /J \"" + targetPath.string() + "\" \"" + cachedPath.string() + "\"";
+            int result = std::system(cmd.c_str());
+            if (result != 0) {
+                std::cerr << "Failed to create junction for " << targetPath << std::endl;
+                return false;
+            }
 #else
-            fs::create_symlink(cachedPath, targetPath);
+            try {
+                create_symlink(cachedPath, targetPath);
+            } catch (const fs::filesystem_error &e) {
+                std::cerr << "Symlink creation failed: " << e.what() << std::endl;
+                return false;
+            }
 #endif
             std::cout << "Linked from cache: " << cachedPath << " → " << targetPath << std::endl;
             return true;
@@ -54,21 +65,29 @@ namespace dev::packages {
     }
 
     bool Cache::addToCache(
-        const std::string& language,
-        const std::string& package,
-        const std::string& version,
-        const std::string& sourceDir
+        const std::string &language,
+        const std::string &package,
+        const std::string &version,
+        const std::string &sourceDir
     ) {
         const auto cachePath = fs::path(getCacheDir()) / language / package / version;
 
-        if (!fs::exists(cachePath)) {
-            fs::create_directories(cachePath);
+        try {
+            if (!exists(cachePath)) {
+                create_directories(cachePath);
+            }
+
+            copy(
+                fs::path(sourceDir),
+                cachePath,
+                fs::copy_options::recursive | fs::copy_options::overwrite_existing
+            );
+        } catch (const fs::filesystem_error &e) {
+            std::cerr << "Failed to add to cache: " << e.what() << std::endl;
+            return false;
         }
 
-        fs::copy(fs::path(sourceDir), cachePath, fs::copy_options::recursive);
-
         std::cout << "Added to cache: " << cachePath << std::endl;
-
         return true;
     }
 }
