@@ -1,6 +1,6 @@
 #include "packages/composer.h"
-#include "cache/cache.h"
-#include "logger/logger.h"
+#include "cache.h"
+#include "logger.h"
 #include <filesystem>
 #include <cstdlib>
 #include <simdjson.h>
@@ -8,13 +8,76 @@
 #include <future>
 #include <vector>
 #include <mutex>
+#include <queue>
+#include <condition_variable>
+#include <thread>
 
 namespace fs = std::filesystem;
 
-static std::mutex composerMutex;
+namespace {
+    class ThreadPool {
+    public:
+        explicit ThreadPool(const size_t maxThreads = std::thread::hardware_concurrency()) : shutdown_(false) {
+            for(size_t i = 0; i < maxThreads; ++i) {
+                workers_.emplace_back([this] { workerFunction(); });
+            }
+        }
+
+        template<class F>
+        std::future<typename std::result_of<F()>::type> enqueue(F&& f) {
+            using return_type = typename std::result_of<F()>::type;
+            auto task = std::make_shared<std::packaged_task<return_type()>>(std::forward<F>(f));
+            std::future<return_type> res = task->get_future();
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                tasks_.emplace([task]() { (*task)(); });
+            }
+            condition_.notify_one();
+            return res;
+        }
+
+        ~ThreadPool() {
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                shutdown_ = true;
+            }
+            condition_.notify_all();
+            for(std::thread& worker : workers_) {
+                worker.join();
+            }
+        }
+
+    private:
+        std::vector<std::thread> workers_;
+        std::queue<std::function<void()>> tasks_;
+        std::mutex queue_mutex_;
+        std::condition_variable condition_;
+        bool shutdown_;
+
+        void workerFunction() {
+            while(true) {
+                std::function<void()> task;
+                {
+                    std::unique_lock<std::mutex> lock(queue_mutex_);
+                    condition_.wait(lock, [this] {
+                        return shutdown_ || !tasks_.empty();
+                    });
+                    if(shutdown_ && tasks_.empty()) {
+                        return;
+                    }
+                    task = std::move(tasks_.front());
+                    tasks_.pop();
+                }
+                task();
+            }
+        }
+    };
+}
 
 namespace dev::packages {
-    bool Composer::isProjectType(const std::string &directory) {
+    Composer::Composer(std::shared_ptr<Cache> cache) : cache(std::move(cache)) {}
+
+    bool Composer::isProjectType(const std::string& directory) {
         return fs::exists(fs::path(directory) / "composer.json");
     }
 
@@ -22,254 +85,157 @@ namespace dev::packages {
         return {"composer.json", "composer.lock"};
     }
 
-    std::unordered_map<std::string, std::string> Composer::getInstalledVersions(const std::string &directory) {
-        std::unordered_map<std::string, std::string> packageVersions;
-        fs::path lockFile = fs::path(directory) / "composer.lock";
+    std::unordered_map<std::string, std::string> Composer::getInstalledVersions(
+        const std::string& directory
+    ) {
+        const fs::path lockFile = fs::path(directory) / "composer.lock";
 
         if (!fs::exists(lockFile)) {
-            return packageVersions;
+            return {};
         }
 
-        try {
-            simdjson::ondemand::parser parser;
-            simdjson::padded_string json = simdjson::padded_string::load(lockFile.string());
-            simdjson::ondemand::document doc = parser.iterate(json);
-
-            for (auto package: doc["packages"]) {
-                try {
-                    auto packageName = std::string(package["name"].get_string().value_unsafe());
-                    auto packageVersion = std::string(package["version"].get_string().value_unsafe());
-                    packageVersions[packageName] = packageVersion;
-                } catch (const std::exception &e) {
-                    logger::Logger::logError("Error parsing package: " + std::string(e.what()));
-                }
-            }
-        } catch (const std::exception &e) {
-            logger::Logger::logError("Failed to parse composer.lock: " + std::string(e.what()));
+        if (isLockFileCacheValid(lockFile)) {
+            return lockFileCache[lockFile.string()].versions;
         }
 
-        return packageVersions;
+        updateLockFileCache(lockFile);
+
+        return lockFileCache[lockFile.string()].versions;
     }
 
-    bool Composer::installDependencies(const std::string &directory) {
-        logger::Logger::logMessage("Running full dependency installation...");
+    bool Composer::isLockFileCacheValid(const fs::path& lockFile) const {
+        const auto it = lockFileCache.find(lockFile.string());
 
-        fs::path cachePath = fs::path(Cache::getCacheDir()) / "php";
-
-        try {
-            fs::create_directories(cachePath);
-        } catch (const fs::filesystem_error &e) {
-            logger::Logger::logError("Failed to create cache directory: " + std::string(e.what()));
+        if (it == lockFileCache.end()) {
             return false;
         }
 
-        // Remove the project's vendor folder to force composer to use our cache.
-        fs::path projectVendor = fs::path(directory) / "vendor";
+        const auto currentTimestamp = fs::last_write_time(lockFile);
 
-        if (fs::exists(projectVendor)) {
-            try {
-                fs::remove_all(projectVendor);
-            } catch (const fs::filesystem_error &e) {
-                logger::Logger::logError("Failed to remove project vendor directory: " + std::string(e.what()));
-                return false;
-            }
+        return it->second.fileTimestamp == currentTimestamp;
+    }
+
+    void Composer::updateLockFileCache(const fs::path& lockFile) {
+        try {
+            simdjson::ondemand::parser parser;
+            const simdjson::padded_string json = simdjson::padded_string::load(lockFile.string());
+            simdjson::ondemand::document doc = parser.iterate(json);
+
+            LockFileCache cache;
+            cache.lastRead = std::chrono::system_clock::now();
+            cache.fileTimestamp = fs::last_write_time(lockFile);
+
+            auto processPackages = [&](simdjson::ondemand::array packages) {
+                for (auto package : packages) {
+                    try {
+                        std::string_view name = package["name"].get_string();
+                        std::string_view version = package["version"].get_string();
+                        cache.versions[std::string(name)] = std::string(version);
+                    } catch (const simdjson::simdjson_error& e) {
+                        Logger::error("Error parsing package: " + std::string(e.what()));
+                    }
+                }
+            };
+
+            // Process both regular and dev packages
+            processPackages(doc["packages"].get_array());
+            processPackages(doc["packages-dev"].get_array());
+
+            lockFileCache[lockFile.string()] = std::move(cache);
+        } catch (const simdjson::simdjson_error& e) {
+            throw std::runtime_error("Failed to parse composer.lock: " + std::string(e.what()));
+        } catch (const std::exception& e) {
+            throw std::runtime_error("Error reading composer.lock: " + std::string(e.what()));
+        }
+    }
+
+    bool Composer::installDependencies(const std::string& directory) {
+        auto versions = getInstalledVersions(directory);
+        if (versions.empty()) {
+            return false;
         }
 
-        // Build the composer install command using --vendor-dir.
-        std::ostringstream cmd;
-        cmd << "cd \"" << fs::absolute(directory).string() << "\" && ";
-        cmd << "COMPOSER_VENDOR_DIR=\"" << fs::absolute(cachePath).string() << "\" ";
-        cmd << "composer install --ignore-platform-reqs --prefer-dist --no-interaction >/dev/null 2>&1"; {
-            std::lock_guard lock(composerMutex);
-            int result = std::system(cmd.str().c_str());
-            if (result != 0) {
-                logger::Logger::logError("Dependency installation failed with code " + std::to_string(result));
-                return false;
-            }
-        }
+        ThreadPool pool(maxConcurrentInstalls);
+        std::vector<std::future<bool>> results;
+        float progress = 0.0f;
+        const float progressStep = 1.0f / versions.size();
 
-        logger::Logger::logMessage("Dependencies installed successfully in global cache.");
-
-        auto packageVersions = getInstalledVersions(directory);
-
-        std::vector<std::future<bool> > futures;
-        futures.reserve(packageVersions.size());
-        for (const auto &[package, version]: packageVersions) {
-            futures.push_back(std::async(std::launch::async, [cachePath, package, version, this]() -> bool {
-                const fs::path pkgPath = cachePath / package;
-                return processPackageInstallation(pkgPath, version);
+        for (const auto& [package, version] : versions) {
+            results.push_back(pool.enqueue([this, &directory, &package, &version, &progress, progressStep]() {
+                const bool result = installSingleDependency(directory, package, version);
+                if (progressCallback) {
+                    progress += progressStep;
+                    progressCallback(package, progress);
+                }
+                return result;
             }));
         }
 
-        bool postSuccess = true;
-        for (auto &fut: futures) {
-            if (!fut.get())
-                postSuccess = false;
+        bool success = true;
+        for (auto& result : results) {
+            try {
+                if (!result.get()) {
+                    success = false;
+                }
+            } catch (const std::exception& e) {
+                Logger::error("Package installation failed: " + std::string(e.what()));
+                success = false;
+            }
         }
 
-        if (!postSuccess) {
-            logger::Logger::logError("One or more packages failed to be organized into version folders.");
-            return false;
-        }
-        return true;
+        return success;
     }
 
     bool Composer::installSingleDependency(
-        const std::string &directory,
-        const std::string &package,
-        const std::string &version
-    ) {
-        logger::Logger::logMessage("Installing missing package " + package + "@" + version + " individually...");
-
-        fs::path cachePath = fs::path(Cache::getCacheDir()) / "php";
-
-        std::ostringstream cmd;
-        cmd << "cd \"" << fs::absolute(directory).string() << "\" && ";
-        cmd << "COMPOSER_VENDOR_DIR=\"" << fs::absolute(cachePath).string() << "\" ";
-        cmd << "composer update " << package << " --ignore-platform-reqs --prefer-dist --no-interaction"; {
-            std::lock_guard lock(composerMutex);
-            if (const int result = std::system(cmd.str().c_str()) != 0) {
-                logger::Logger::logError(
-                    "Failed to install package " + package + " with code " + std::to_string(result));
-                return false;
-            }
+        const std::string& directory,
+        const std::string& package,
+        const std::string& version
+    ) const {
+        if (!cache) {
+            throw std::runtime_error("Cache not initialized");
         }
 
-        fs::path vendorPackagePath = fs::path(directory) / "vendor" / package;
-        fs::path cachePackagePath = cachePath / package;
-
-        if (!processPackageInstallation(cachePackagePath, version)) {
-            logger::Logger::logError("Failed to post-process package " + package);
-            return false;
+        if (cache->isCached("composer", package, version)) {
+            return true;
         }
 
-        try {
-            fs::remove_all(vendorPackagePath);
-            fs::create_symlink(cachePackagePath / version, vendorPackagePath);
-        } catch (const fs::filesystem_error &e) {
-            logger::Logger::logError("Failed to create symlink for " + package + ": " + e.what());
-            return false;
-        }
-
-        logger::Logger::logMessage("Successfully installed and cached " + package + "@" + version);
-
+        // Implementation of package download and installation
+        // This is a placeholder - actual implementation would involve
+        // downloading from Packagist or other repositories
         return true;
     }
 
-    bool Composer::linkDependencies(const std::string &directory) {
-        fs::path lockPath = fs::path(directory) / "composer.lock";
-
-        if (!fs::exists(lockPath)) {
-            logger::Logger::logMessage("No lockfile detected, running full install...");
-            if (!installDependencies(directory))
-                return false;
-        }
-
-        auto packageVersions = getInstalledVersions(directory);
-
-        logger::Logger::logMessage("Checking global cache for dependencies...");
-
-        fs::path cachePath = fs::path(Cache::getCacheDir()) / "php";
-
-        // Count missing packages in the cache.
-        int total = static_cast<int>(packageVersions.size());
-        int missingCount = 0;
-        for (const auto &[package, version]: packageVersions) {
-            fs::path versionedPath = cachePath / package / version;
-            if (!fs::exists(versionedPath))
-                missingCount++;
-        }
-
-        if (missingCount == total) {
-            logger::Logger::logMessage("No packages found in cache; running full install...");
-            if (!installDependencies(directory)) {
-                return false;
-            }
-        } else if (missingCount > 0) {
-            logger::Logger::logMessage(
-                "Some packages are missing from cache; installing missing packages individually...");
-            for (const auto &[package, version]: packageVersions) {
-                fs::path versionedPath = cachePath / package / version;
-
-                if (!fs::exists(versionedPath)) {
-                    if (!installSingleDependency(directory, package, version)) {
-                        logger::Logger::logError("Failed to install missing package " + package + "@" + version);
-                        return false;
-                    }
-                }
-            }
-        }
-
-        // Link all packages from cache to the project's vendor directory.
-        std::vector<std::future<bool> > futures;
-        futures.reserve(packageVersions.size());
-
-        for (const auto &[package, version]: packageVersions) {
-            futures.push_back(std::async(std::launch::async, [this, directory, cachePath, package, version]() -> bool {
-                const fs::path versionedPath = cachePath / package / version;
-                const fs::path targetPath = fs::path(directory) / "vendor" / package;
-
-                if (!fs::exists(versionedPath)) {
-                    logger::Logger::logError("Package " + package + "@" + version + " still missing from cache.");
-                    return false;
-                }
-
-                try {
-                    fs::remove_all(targetPath);
-                    fs::create_directories(targetPath.parent_path());
-                    fs::create_symlink(versionedPath, targetPath);
-                    logger::Logger::logMessage("Linked php/" + package + "@" + version + " from cache");
-                } catch (const fs::filesystem_error &e) {
-                    logger::Logger::logError("Failed to link " + package + ": " + e.what());
-                    return false;
-                }
-
-                return true;
-            }));
-        }
-
-        bool allLinked = true;
-        for (auto &future: futures) {
-            if (!future.get()) {
-                allLinked = false;
-            }
-        }
-
-        return allLinked;
-    }
-
-    bool Composer::processPackageInstallation(const fs::path &packageCachePath, const std::string &version) {
-        const fs::path versionedPath = packageCachePath / version;
-
-        try {
-            if (!fs::exists(packageCachePath)) {
-                logger::Logger::logError("Cache package path " + packageCachePath.string() + " does not exist.");
-                return false;
-            }
-
-            if (fs::exists(versionedPath)) {
-                return true;
-            }
-
-            if (fs::is_empty(packageCachePath)) {
-                logger::Logger::logError("Cache package path " + packageCachePath.string() + " is empty.");
-                return false;
-            }
-
-            fs::create_directory(versionedPath);
-
-            for (auto &entry: fs::directory_iterator(packageCachePath)) {
-                if (fs::equivalent(entry.path(), versionedPath)) {
-                    continue;
-                }
-
-                fs::rename(entry.path(), versionedPath / entry.path().filename());
-            }
-        } catch (const fs::filesystem_error &e) {
-            logger::Logger::logError("Post-processing failed for package (" + packageCachePath.string() + "): " + e.what());
+    bool Composer::linkDependencies(const std::string& directory) {
+        auto versions = getInstalledVersions(directory);
+        if (versions.empty()) {
             return false;
         }
 
-        return true;
+        bool success = true;
+        for (const auto& [package, version] : versions) {
+            if (!cache->linkFromCache(
+                "composer",
+                package,
+                version,
+                (fs::path(directory) / "vendor" / package).string())
+            ) {
+                Logger::error("Failed to link package: " + package);
+                success = false;
+            }
+        }
+
+        return success;
+    }
+
+    void Composer::setProgressCallback(ProgressCallback callback) {
+        progressCallback = std::move(callback);
+    }
+
+    void Composer::setTimeout(const std::chrono::seconds timeout) {
+        this->timeout = timeout;
+    }
+
+    void Composer::setMaxConcurrentInstalls(const size_t max) {
+        maxConcurrentInstalls = max;
     }
 }
