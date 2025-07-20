@@ -61,7 +61,6 @@ To add support for a new package manager:
     - `getDependencyFiles()`: Return a list of files that define dependencies (e.g., `package.json`).
     - `getInstalledVersions()`: Return a map of packages and their versions, usually parsed from a lock file.
     - `installDependency()`: Logic for downloading and caching a single package.
-3.  Update the main application logic to include your new manager in the detection process.
 
 That's it! The build system will automatically detect your new files, generate the necessary registration code, and include it in the final executable. There is no need to manually edit any other files to register your manager.
 
