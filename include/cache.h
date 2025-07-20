@@ -3,6 +3,7 @@
 #include <string>
 #include <filesystem>
 #include <optional>
+#include <vector>
 
 namespace dev::packages {
     class Cache {

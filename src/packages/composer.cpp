@@ -2,10 +2,8 @@
 #include "cache.h"
 #include "logger.h"
 #include <filesystem>
-#include <cstdlib>
+#include <fstream>
 #include <simdjson.h>
-#include <sstream>
-#include <system_error>
 
 namespace fs = std::filesystem;
 
@@ -102,7 +100,7 @@ namespace dev::packages {
             return true;
         }
 
-        Logger::info("Installing package ", package, ":", version);
+        Logger::info("Installing package ", package, ":", version, "in ", directory, " using Composer.");
 
         // Placeholder for actual package download and installation logic.
         // In a real implementation, this would involve:

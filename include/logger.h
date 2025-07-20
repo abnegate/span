@@ -5,7 +5,6 @@
 #include <string>
 #include <sstream>
 #include <chrono>
-#include <ctime>
 #include <iomanip>
 
 namespace dev {
@@ -72,11 +71,11 @@ namespace dev {
 
         static const char* getLevelString(const Level level) {
             switch (level) {
-                case Level::DEBUG:   return "DEBUG";
-                case Level::INFO:    return "INFO";
+                case Level::DEBUG: return "DEBUG";
+                case Level::INFO: return "INFO";
                 case Level::WARNING: return "WARN";
-                case Level::ERROR:   return "ERROR";
-                default:            return "UNKNOWN";
+                case Level::ERROR: return "ERROR";
+                default: return "UNKNOWN";
             }
         }
 
