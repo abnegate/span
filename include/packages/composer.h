@@ -25,7 +25,7 @@ namespace dev::packages {
         ) override;
 
     private:
-        bool installSingleDependency(
+        bool installDependency(
             const std::string& directory,
             const std::string& package,
             const std::string& version

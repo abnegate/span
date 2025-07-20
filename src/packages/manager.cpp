@@ -24,7 +24,7 @@ namespace dev::packages {
 
         for (const auto& [package, version] : versions) {
             results.emplace_back(pool.enqueue([this, &directory, &package, &version, &progress, progressStep] {
-                bool result = this->installSingleDependency(directory, package, version);
+                const bool result = this->installDependency(directory, package, version);
                 if (this->progressCallback) {
                     progress += progressStep;
                     this->progressCallback(package, progress.load());

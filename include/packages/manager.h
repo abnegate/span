@@ -77,7 +77,7 @@ namespace dev::packages {
         std::chrono::seconds timeout{300};
         size_t maxConcurrentInstalls{std::thread::hardware_concurrency()};
 
-        virtual bool installSingleDependency(
+        virtual bool installDependency(
             const std::string& directory,
             const std::string& package,
             const std::string& version

@@ -88,7 +88,7 @@ namespace dev::packages {
         }
     }
 
-    bool Composer::installSingleDependency(
+    bool Composer::installDependency(
         const std::string& directory,
         const std::string& package,
         const std::string& version

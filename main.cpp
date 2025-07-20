@@ -1,8 +1,9 @@
 #include "cli.h"
-#include "packages/manager.h"
-#include "packages/composer.h"
+#include "packages/manager_factory.h"
+#include "cache.h"
 #include <vector>
 #include <future>
+#include <memory>
 
 namespace fs = std::filesystem;
 
@@ -17,14 +18,13 @@ int main(const int argc, char **argv) {
         "Project directory (defaults to current directory)"
     );
 
-    std::vector<std::shared_ptr<dev::packages::Manager> > managers;
-
-    managers.push_back(std::make_shared<dev::packages::Composer>());
+    auto cache = std::make_shared<dev::packages::Cache>();
+    auto managers = dev::packages::ManagerFactory::getInstance().createManagers(cache);
 
     auto detectPackageManagers = [&](
         const std::string &directory
-    ) -> std::vector<std::shared_ptr<dev::packages::Manager> > {
-        std::vector<std::shared_ptr<dev::packages::Manager> > detected;
+    ) -> std::vector<std::shared_ptr<dev::packages::Manager>> {
+        std::vector<std::shared_ptr<dev::packages::Manager>> detected;
         for (auto &manager: managers) {
             if (manager->isProjectType(directory)) {
                 detected.push_back(manager);
