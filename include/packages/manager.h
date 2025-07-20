@@ -4,6 +4,11 @@
 #include <string>
 #include <unordered_map>
 #include <stdexcept>
+#include <functional>
+#include <chrono>
+#include <memory>
+#include <thread>
+#include "cache.h"
 
 namespace dev::packages {
     // Custom exception for package management errors
@@ -15,6 +20,9 @@ namespace dev::packages {
 
     class Manager {
     public:
+        using ProgressCallback = std::function<void(const std::string& package, float progress)>;
+
+        explicit Manager(std::shared_ptr<Cache> cache);
         virtual ~Manager() = default;
 
         /**
@@ -49,7 +57,7 @@ namespace dev::packages {
          */
         virtual bool installDependencies(
             const std::string& directory
-        ) = 0;
+        );
 
         /**
          * Link installed dependencies into the project
@@ -57,6 +65,25 @@ namespace dev::packages {
          * @return true if all dependencies were linked successfully
          * @throws PackageManagerError if linking fails
          */
-        virtual bool linkDependencies(const std::string& directory) = 0;
+        bool linkDependencies(const std::string& directory);
+
+        void setProgressCallback(ProgressCallback callback);
+        void setTimeout(std::chrono::seconds timeout);
+        void setMaxConcurrentInstalls(size_t max);
+
+    protected:
+        std::shared_ptr<Cache> cache;
+        ProgressCallback progressCallback;
+        std::chrono::seconds timeout{300};
+        size_t maxConcurrentInstalls{std::thread::hardware_concurrency()};
+
+        virtual bool installSingleDependency(
+            const std::string& directory,
+            const std::string& package,
+            const std::string& version
+        ) = 0;
+
+        virtual std::string getLanguageName() const = 0;
+        virtual std::string getVendorDir() const = 0;
     };
 }

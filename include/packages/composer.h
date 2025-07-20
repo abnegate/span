@@ -7,8 +7,6 @@
 #include <memory>
 #include <chrono>
 #include <functional>
-#include <thread>
-
 #include "packages/manager.h"
 #include "cache.h"
 
@@ -27,26 +25,15 @@ namespace dev::packages {
             const std::string& directory
         ) override;
 
-        bool installDependencies(const std::string& directory) override;
-
-        bool linkDependencies(const std::string& directory) override;
-
-        // Progress callback type
-        using ProgressCallback = std::function<void(const std::string& package, float progress)>;
-
-        void setProgressCallback(ProgressCallback callback);
-
-        // Timeout settings
-        void setTimeout(std::chrono::seconds timeout);
-
-        // Concurrency control
-        void setMaxConcurrentInstalls(size_t max);
-
     private:
-        std::shared_ptr<Cache> cache;
-        ProgressCallback progressCallback;
-        size_t maxConcurrentInstalls{std::thread::hardware_concurrency()};
-        std::chrono::seconds timeout{300}; // 5 minutes default
+        bool installSingleDependency(
+            const std::string& directory,
+            const std::string& package,
+            const std::string& version
+        ) override;
+
+        std::string getLanguageName() const override;
+        std::string getVendorDir() const override;
 
         struct LockFileCache {
             std::unordered_map<std::string, std::string> versions;
@@ -57,11 +44,5 @@ namespace dev::packages {
         std::unordered_map<std::string, LockFileCache> lockFileCache;
         bool isLockFileCacheValid(const fs::path& lockFile) const;
         void updateLockFileCache(const fs::path& lockFile);
-
-        bool installSingleDependency(
-            const std::string& directory,
-            const std::string& package,
-            const std::string& version
-        ) const;
     };
 } // namespace dev::packages
