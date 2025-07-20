@@ -83,7 +83,7 @@ namespace dev::packages {
             const std::string& version
         ) = 0;
 
-        virtual std::string getLanguageName() const = 0;
-        virtual std::string getVendorDir() const = 0;
+        virtual std::string getManagerName() const = 0;
+        virtual std::string getInstallDirectory() const = 0;
     };
 }

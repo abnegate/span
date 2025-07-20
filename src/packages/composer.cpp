@@ -112,7 +112,7 @@ namespace dev::packages {
         // For now, we'll simulate a successful installation.
 
         // Simulate creating a dummy file in the cache to mark it as "installed"
-        auto packageCachePath = fs::path(cache->getCacheDir()) / getLanguageName() / package / version;
+        auto packageCachePath = fs::path(cache->getCacheDir()) / getManagerName() / package / version;
         fs::create_directories(packageCachePath);
         std::ofstream dummyFile(packageCachePath / "installed.marker");
         dummyFile << "installed";
@@ -121,11 +121,11 @@ namespace dev::packages {
         return true;
     }
 
-    std::string Composer::getLanguageName() const {
+    std::string Composer::getManagerName() const {
         return "composer";
     }
 
-    std::string Composer::getVendorDir() const {
+    std::string Composer::getInstallDirectory() const {
         return "vendor";
     }
 }

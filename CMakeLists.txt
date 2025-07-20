@@ -31,6 +31,8 @@ add_executable(
     dev
     src/cache.cpp
     src/packages/composer.cpp
+    src/packages/manager.cpp
+    src/thread_pool.cpp
     main.cpp
 )
 

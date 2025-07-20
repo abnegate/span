@@ -6,7 +6,6 @@
 #include <filesystem>
 #include <memory>
 #include <chrono>
-#include <functional>
 #include "packages/manager.h"
 #include "cache.h"
 
@@ -32,8 +31,8 @@ namespace dev::packages {
             const std::string& version
         ) override;
 
-        std::string getLanguageName() const override;
-        std::string getVendorDir() const override;
+        [[nodiscard]] std::string getManagerName() const override;
+        [[nodiscard]] std::string getInstallDirectory() const override;
 
         struct LockFileCache {
             std::unordered_map<std::string, std::string> versions;

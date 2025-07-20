@@ -56,8 +56,8 @@ namespace dev::packages {
 
         bool success = true;
         for (const auto& [package, version] : versions) {
-            const auto vendorPath = fs::path(directory) / getVendorDir() / package;
-            if (!cache->linkFromCache(getLanguageName(), package, version, vendorPath.string())) {
+            const auto vendorPath = fs::path(directory) / getInstallDirectory() / package;
+            if (!cache->linkFromCache(getManagerName(), package, version, vendorPath.string())) {
                 Logger::error("Failed to link package: ", package);
                 success = false;
             }
