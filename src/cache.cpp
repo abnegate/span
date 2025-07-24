@@ -86,6 +86,43 @@ namespace dev::packages {
         }
     }
 
+    bool Cache::linkToCache(
+        const std::string& language,
+        const std::string& package,
+        const std::string& version,
+        const std::string& sourceDir
+    ) const {
+        const auto cachedPath = (
+            fs::path(cacheDir) /
+            escapePath(language) /
+            escapePath(package) /
+            escapePath(version)
+        ).make_preferred();
+
+        const auto sourcePath = fs::path(sourceDir);
+
+        if (!fs::exists(sourcePath)) {
+            return false;
+        }
+
+        try {
+            // Create the parent directories in cache
+            fs::create_directories(cachedPath.parent_path());
+
+            // If cache directory already exists, remove it first
+            if (fs::exists(cachedPath)) {
+                fs::remove_all(cachedPath);
+            }
+
+            // Create symlink from cache to source
+            createSymlink(sourcePath, cachedPath);
+            return true;
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
     void Cache::createSymlink(const fs::path& target, const fs::path& link) const {
 #ifdef _WIN32
         std::array<char, 32768> buffer;
@@ -103,7 +140,7 @@ namespace dev::packages {
 #endif
     }
 
-    std::string Cache::escapePath(const std::string& path) const {
+    std::string Cache::escapePath(const std::string& path) {
         std::string result;
         result.reserve(path.size());
 

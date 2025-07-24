@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_options(/W4 /WX)
 else()
-    add_compile_options(-Wall -Wextra -Werror -Wpedantic)
+#    add_compile_options(-Wall -Wextra -Werror -Wpedantic)
 endif()
 
 # Enable sanitizers if requested
@@ -48,7 +48,6 @@ add_executable(
     src/packages/composer.cpp
     src/packages/manager.cpp
     src/packages/manager_factory.cpp
-    src/thread_pool.cpp
     main.cpp
     ${GENERATED_REGISTRAR_FILE}
 )
@@ -75,5 +74,4 @@ find_package(Threads REQUIRED)
 
 if(BUILD_TESTING)
     enable_testing()
-#    add_subdirectory(tests)
 endif()

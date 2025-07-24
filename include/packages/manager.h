@@ -11,7 +11,6 @@
 #include "cache.h"
 
 namespace dev::packages {
-    // Custom exception for package management errors
     class PackageManagerError final : public std::runtime_error {
     public:
         explicit PackageManagerError(const std::string& message)
@@ -34,12 +33,6 @@ namespace dev::packages {
         virtual bool isProjectType(const std::string& directory) = 0;
 
         /**
-         * Get the list of files that define dependencies
-         * @return Vector of dependency file names
-         */
-        virtual std::vector<std::string> getDependencyFiles() = 0;
-
-        /**
          * Get map of installed package versions
          * @param directory The project directory
          * @return Map of package names to versions
@@ -48,6 +41,12 @@ namespace dev::packages {
         virtual std::unordered_map<std::string, std::string> getInstalledVersions(
             const std::string& directory
         ) = 0;
+
+        /**
+         * Get the dependency file name for this package manager
+         * @return The name of the dependency file (e.g., "composer.json", "package.json")
+         */
+        virtual std::string getDependencyFileName() const = 0;
 
         /**
          * Install all dependencies for the project
@@ -85,5 +84,12 @@ namespace dev::packages {
 
         virtual std::string getManagerName() const = 0;
         virtual std::string getInstallDirectory() const = 0;
+
+    private:
+        bool installSingleDependency(
+            const std::string& directory,
+            const std::string& package,
+            const std::string& version
+        );
     };
 }

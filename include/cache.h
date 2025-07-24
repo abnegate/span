@@ -60,6 +60,22 @@ namespace dev::packages {
         ) const;
 
         /**
+         * Link a package from a source directory to the cache.
+         *
+         * @param language The programming language of the package (e.g., "PHP").
+         * @param package The name of the package.
+         * @param version The version of the package.
+         * @param sourceDir The directory containing the package to be cached.
+         * @return True if the link was created successfully, false otherwise.
+         */
+        [[nodiscard]] bool linkToCache(
+            const std::string& language,
+            const std::string& package,
+            const std::string& version,
+            const std::string& sourceDir
+        ) const;
+
+        /**
          * Verify the integrity of a cached package.
          *
          * @param language The programming language of the package (e.g., "PHP").
@@ -100,14 +116,11 @@ namespace dev::packages {
         std::string cacheDir;
 
         static std::string getDefaultCacheDir();
+        static std::string escapePath(const std::string& path);
 
         void createSymlink(
             const std::filesystem::path& target,
             const std::filesystem::path& link
-        ) const;
-
-        [[nodiscard]] std::string escapePath(
-            const std::string& path
         ) const;
     };
 }

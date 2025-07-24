@@ -14,11 +14,12 @@ namespace fs = std::filesystem;
 namespace dev::packages {
     class Composer final : public Manager {
     public:
+        static constexpr const char* DEPS_FILE_NAME = "composer.json";
+        static constexpr const char* LOCK_FILE_NAME = "composer.lock";
+
         explicit Composer(std::shared_ptr<Cache> cache);
 
         bool isProjectType(const std::string& directory) override;
-
-        std::vector<std::string> getDependencyFiles() override;
 
         std::unordered_map<std::string, std::string> getInstalledVersions(
             const std::string& directory
@@ -33,6 +34,7 @@ namespace dev::packages {
 
         [[nodiscard]] std::string getManagerName() const override;
         [[nodiscard]] std::string getInstallDirectory() const override;
+        [[nodiscard]] std::string getDependencyFileName() const override;
 
         struct LockFileCache {
             std::unordered_map<std::string, std::string> versions;
