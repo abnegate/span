@@ -1,4 +1,4 @@
-# Span - Cross-Language Dependency Management
+# Span - Cross-Language Dependency Manager
 
 Span is a high-performance dependency management tool. It provides a unified interface for managing project dependencies across different languages and ecosystems, with a focus on speed and efficiency through local caching and concurrent operations.
 
